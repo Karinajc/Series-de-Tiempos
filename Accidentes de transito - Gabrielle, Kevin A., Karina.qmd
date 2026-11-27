@@ -1,0 +1,987 @@
+---
+title: "Análisis de serie temporal de accidentes de tránsito con víctimas en Costa Rica (2014-2024)."
+author: "Gabrielle Herrera, Kevin Arce, Karina Jiménez"
+date: "Noviembre, 2026"
+bibliography: referencias.bib
+csl: apa.csl
+format: 
+  pdf:
+    toc: true
+    toc-depth: 3
+    number-sections: false
+execute:
+  echo: false
+  warning: false
+  message: false
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+#| include: false
+
+paquetes <- c("ggfortify","forecast", "fpp2", "data.table", "TTR","xts","tidyverse",
+  "lubridate","DT","quantmod","plotly")
+# Instala solo los paquetes que aún no tengas instalados
+paquetes_nuevos <- paquetes[!(paquetes %in% installed.packages()[, "Package"])]
+if (length(paquetes_nuevos) > 0) {install.packages(paquetes_nuevos)}
+```
+
+```{r paquetes}
+#| include: false
+
+library(ggfortify)
+library(forecast)
+library(fpp2)
+library(data.table)
+library(TTR)
+library(xts)
+library(tidyverse)
+library(lubridate)
+library(DT)
+library(quantmod)
+library(plotly)
+library(ggplot2)
+library(knitr)
+library(tseries)#
+library(astsa)#
+library(car)
+```
+
+```{r base}
+#| include: false
+load("accidentes.Rdata")
+accidentes <- accidentes[c(25:156),]
+```
+
+# Resumen
+
+La inseguridad vial constituye un problema prioritario de salud pública en Costa Rica, donde los accidentes de tránsito representan la principal causa de muerte en personas menores de 45 años y de años de vida productivos perdidos. Ante la necesidad de comprender su evolución temporal y apoyar la toma de decisiones en movilidad segura, este estudio tiene como objetivo identificar el modelo de series de tiempo que mejor se ajusta a la dinámica mensual de los accidentes de tránsito con víctimas (ATV) en el país durante el periodo 2014–2024. Para ello, se construyó una base de datos de 132 observaciones mensuales a partir de los Anuarios Estadísticos del Consejo de Seguridad Vial (COSEVI). Metodológicamente, se realizó un análisis comparativo entre cuatro familias de modelos: suavizamiento exponencial, ARIMA/SARIMA, regresión y regresión dinámica, evaluando su capacidad de ajuste y precisión predictiva. Los resultados evidencian que el modelo SARIMA(0,1,1)(1,0,0)[12] presenta el mejor desempeño, alcanzando un error de pronóstico de RMSE = 58.709 y MAPE = 3.202%. Estos hallazgos aportan una herramienta cuantitativa robusta para proyectar el comportamiento de los ATV y orientar políticas públicas preventivas.
+
+# Introducción
+
+La inseguridad vial es un problema de salud pública en Costa Rica. Solo en 2022 los accidentes de tránsito representaron la primera causa de muerte por años de vida productivos perdidos y son la primera causa de muerte para personas menores de 45 años desde 2013 [@inec2023defunciones].
+
+Los indicadores de mortalidad vial en este país muestran un panorama preocupante. En Costa Rica, la tasa de muertes por kilómetro‑pasajero en motocicletas es relativamente más alta que en otros países ($19.11$ en 2021 por cada 100 millones de kilómetro-pasajero), y llega a ser aproximadamente quince veces mayor que la de los automóviles ($0.99$ en 2021). Aunque la tasa para automóviles también se ubica por encima de la observada en otras naciones, la de autobuses resulta significativamente más baja, lo que evidencia diferencias sustanciales según el tipo de transporte [@aguerovalverde2025tasa].
+
+Además, en Australia se analizó la tendencia de los accidentes mortales en carretera con datos de 1989 hasta 2024, con el objetivo de pronosticar esta tendencia hasta 2050, mediante el análisis de factores como la ubicación geográfica, la edad, el género, los límites de velocidad y la hora en que ocurren. Además, tenían infomación sobre el tipo de usuario de la vía, características demográficas y día de la semana. Se utilizaron tres modelos de series temporales, que corresponden a SARIMA, ETS y *Facebook Prophet*, que es ideal para analizar tendencias no estacionarias y variaciones estacionales. En este estudio, el Facebook Prophet tuve mejor desempeño, por lo que este fue el modelo utilizado para los pronósticos. El análisis revela disparidades regionales significativas en la reducción de las muertes [@soltani2025timeseries].
+
+En Pakistán, se analizaron los casos de accidentes de tránsito (AT) atendidos en el Hospital universitario Liaquat, con el objetivo de realizar un análisis estacional y de series temporales de los casos de AT en el servicio de urgencias. Para esto, se examinaron 966 casos relacionados con accidentes viales mediante un estudio prospectivo, con datos desde enero 2020 hasta diciembre de 2022. En este caso, el estudio utilizó una metodología descriptiva, por lo que se encuentra que a mayor incidencia de casos relacionados con accidentes viales se registró en el mes de diciembre, seguido de julio y noviembre, con una tendencia general a aumentar en los últimos tres meses del año [@shafay2024seasonal].
+
+En Omán se analizó una serie temporal de 228 observaciones mensuales de las muertes por AT registradas entre enero de 2000 y diciembre de 2018. El objetivo del estudio fue comparar el desempeño de los modelos sugeridos por la función automatizada `auto.arima()` frente a la selección manual de modelos ARIMA y SARIMA. Se concluyó que el ajuste manual ofrece una mayor exactitud predictiva que la selección automática [@alhasani2019diagnostic].
+
+Estos artículos muestran diferentes aproximaciones para el estudio de series de tiempo relacionadas con AT. Específicamente, se encuentran modelos que pueden ser utilizados de referencia en este estudio, en caso de que el análisis descriptivo de la serie de ATV en Costa Rica concuerde con las series que presentan estos autores.
+
+Con base en estas experiencias y en el comportamiento temporal de los registros mensuales, este trabajo tiene como objetivo comparar el desempeño de distintas familias de modelos de series de tiempo,
+específicamente suavizamiento exponencial, ARIMA/SARIMA, regresión y regresión dinámica, para identificar la especificación que mejor se ajusta a la dinámica de los ATV en Costa Rica durante el periodo 2014–2024.
+
+Contar con registros de los accidentes de tránsito con víctimas (ATC) ofrece una oportunidad para analizar la evolución temporal de este fenómeno, identificar patrones estacionales y tendencias de largo plazo, y comprender cómo se han modificado los niveles de riesgo en distintos periodos. La naturaleza periódica y acumulativa de los datos convierte a las series de tiempo en una herramienta idónea para estudiar la dinámica de los accidentes y aportar evidencia que complemente los enfoques tradicionales de la investigación en seguridad vial.
+
+La motivación de este trabajo radica en la necesidad de generar conocimiento riguroso que permita interpretar la variabilidad temporal de los ATV y, en consecuencia, aportar en la orientación para la generación de políticas públicas más efectivas. Al analizar los registros mensuales de más de una década, se busca no solo describir la evolución histórica de los accidentes con víctimas, sino también ofrecer insumos que contribuyan a la prevención y a la planificación estratégica en materia de movilidad segura. Este estudio se justifica por su relevancia social y por el potencial de sus hallazgos para fortalecer la toma de decisiones en un ámbito de alto impacto humano y económico.
+
+Al contrastar estas familias de modelos sobre los registros mensuales de una década, el estudio no solo busca describir la evolución histórica de los accidentes con víctimas, sino también seleccionar una herramienta cuantitativa robusta que respalde la prevención y la planificación estratégica en materia de movilidad segura.
+
+# Método
+
+Este apartado describe la serie mensual de accidentes de tránsito con víctimas (ATV) en Costa Rica (2014–2024), el análisis exploratorio y de descomposición que orientó la selección de modelos, la formulación numerada de cada especificación, las reglas de comparación y diagnóstico aplicadas.
+
+## Datos
+
+Para el desarrollo de este trabajo se utilizaron los datos provenientes de los Anuarios Estadísticos de ATV publicados por el Consejo de Seguridad Vial (COSEVI) para los años 2014 a 2024 [@cosevi2017memoria;
+@cosevi2018anuario; @cosevi2019anuario; @cosevi2024cantidad]. A partir de estas publicaciones oficiales se construyó una base de datos propia, organizada con periodicidad mensual, que registra la cantidad de ATV ocurridos en cada mes de cada año dentro del periodo analizado.
+
+La base de datos resultante abarca un periodo temporal de diez años consecutivos (2014–2024) y se compone de 132 observaciones distribuidas en dos variables: el mes-año como referencia temporal y el número de ATV como variable de interés. Esta estructura permite analizar la evolución de los ATV en Costa Rica con un nivel de detalle mensual, facilitando la identificación de tendencias y variaciones a lo largo del tiempo.
+
+Sobre la variable de interés es perentorio aclarar que los datos los obtiene el COSEVI por medio del parte oficial de tránsito que realiza la Policía de Tránsito al presentarse al accidente. Asimismo, los ATV refiere a cuando en el accidente hubo al menos uno de los participantes que resultó herido leve, grave o fallecido. La valoración para leve o grave es subjetiva, realizada por el oficial de tránsito al llegar al sitio, sin criterio médico, y solo se contabilizan los fallecidos en el lugar de los hechos o en el traslado, no involucrando a quienes mueren en el hospital. Por último, cuando en un mismo accidente se contabilizan varios tipos de lesiones, a ese ATV se le asigna la categoría donde se tenga al usuario con mayor vulnerabilidad [@cosevi2017memoria].
+
+## Análisis descriptivo de la serie
+
+```{r}
+#| include: false
+
+y <- ts(accidentes$Serie, start=c(2014,1), frequency=12) #class(y)
+summary(y)
+```
+
+La serie de ATV presenta un promedio mensual de aproximadamente 1234 accidentes, igual que la mediana. El 50% de las observaciones se encuentra entre 1129 y 1344 accidentes mensuales. El valor mínimo registrado en la serie es de 677 accidentes, mientras que el máximo alcanza los 1570 accidentes.
+
+Como se puede observar en la Figura 1, la serie muestra un leve crecimiento en cuanto a la tendencia entre 2014 y 2016, además de un pico decreciente en 2020, que crece de forma progresiva hasta 2022, alcanzando cierta estabilidad entre 2022 y 2024. En general, se observa que la media de la serie es estable, por lo que se determina que esta serie no presenta tendencia. La caida del 2020 representa un cambio estructural en la serie que se puede explicar por la pandemia.
+
+
+Con respecto a la estacionariedad, visualmente la media no parece fluctuar alrededor de un valor constante, esto por los cambios de nivel observados a lo largo del periodo,especialmente la caída pronunciada alrededor de 2020, producida seguramente por la pandemia. Por otra parte, la variabilidad parece mantenerse relativamente estable, aunque se presentan algunas fluctuaciones importantes. Debido a que el análisis visual no permite determinar con certeza si la serie es estacionaria, se decide complementar la evaluación mediante la función de autocorrelación (ACF) y la prueba de Dickey-Fuller, con el propósito de determinar si es necesario aplicar una diferenciación regular que permita estabilizar la media.
+
+**Figura 1.**
+
+*Serie ATV desde 2014 a 2024.*
+
+```{r}
+ts.plot(y)
+```
+
+A partir de esta observación, se procedió a realizar la descomposición de la serie de forma aditiva, como se observa en la Figura 2. En este caso, se encuentra una clara estacionalidad con picos crecientes en diciembre y marzo, además de un pico decreciente en junio, con valores estacionales de 120.83, 87.53 y -70.89, respectivamente. No se observa ciclicidad, y el ruido parece ser aleatorio, con picos únicamente en los valores que coinciden con el periodo de restricción sanitaria de la pandemia.
+
+**Figura 2.**
+
+*Descomposición aditiva: ATV Costa Rica (2012-2024).*
+
+```{r}
+#Descomposición aditiva 
+descomp <- decompose(y, type = "additive")
+autoplot(descomp)
+```
+
+```{r}
+#| include: false
+descomp$trend
+descomp$seasonal
+descomp$random
+descomp$figure
+```
+
+Para evaluar la estacionariedad de la serie, se consideran dos criterios. En primer lugar,
+mediante la función de autocorrelación (ACF), se observa un decaimiento gradual de las autocorrelaciones, las cuales permanecen significativas durante varios rezagos y no una caída tan de golpe, lo que sugiere una posible falta de estacionariedad. En segundo lugar, la prueba de Dickey-Fuller presenta un valor p de 0.2902, por lo que no se rechaza la hipótesis nula de presencia de raíz unitaria. En conjunto, ambos resultados respaldan la decisión de aplicar una diferenciación regular de primer orden d=1, con el propósito de reducir la persistencia temporal y favorecer la estabilidad de la media.
+
+**Figura 3.**
+
+*ACF y PACF de la serie original.*
+
+```{r}
+acf2(y)
+```
+
+```{r}
+#| include: false
+adf.test(y)
+```
+
+Con el propósito de evaluar la estacionariedad de la serie y facilitar la identificación de posibles modelos ARIMA/SARIMA, se realizó una diferenciación regular de primer orden. Como se observa en la Figura 4 y 5, la serie diferenciada presenta fluctuaciones alrededor de cero, sin una tendencia sostenida evidente y con una variabilidad relativamente estable, aunque se mantienen algunos valores extremos. Esta transformación se considera para el análisis de los modelos ARIMA/SARIMA, mientras que los modelos de suavizamiento exponencial se ajustan directamente sobre la serie original, debido a que permiten modelar el nivel, la tendencia y la estacionalidad sin requerir una diferenciación previa.
+
+**Figura 4.**
+
+*Serie ATV desde 2014 a 2024, con una diferenciación de rezago 1.*
+
+```{r}
+y1 = diff(y, lag = 1)
+ts.plot(y1)
+```
+
+**Figura 5.**
+
+*Descomposición aditiva: ATV Costa Rica (2012-2024) con un rezago.*
+
+```{r}
+descomp2 <- decompose(y1, type = "additive")
+autoplot(descomp2)
+```
+
+Con respecto a las funciones de autocorrelación simple (ACF) y parcial (PACF) de la serie diferenciada, presentadas en la Figura 6, se observa que la ACF ya no presenta el decaimiento gradual y prolongado identificado en la serie original, además de que la prueba de Dickey-Fuller presenta un valor p de 0.01, por lo que se rechaza la hipótesis nula de presencia de raíz unitaria, dando evidencia de estacionariedad. Sin embargo, se mantienen algunos rezagos significativos. Por otra parte, el PACF también presenta varios rezagos significativos, sin un patrón de decaimiento claramente definido. 
+En conjunto, estos resultados sugieren que la diferenciación regular redujo la persistencia temporal de la serie, aunque todavía existe dependencia temporal que deberá examina.
+
+**Figura 6.**
+
+*ACF y PACF de la serie con un rezago.*
+
+```{r}
+par(mfrow = c(1,2))
+acf(y1, lag.max = 100)
+pacf(y1, lag.max = 100)
+par(mfrow = c(1,1))
+```
+```{r}
+#| include: false
+
+adf.test(y1)
+
+```
+
+Examinando el comportamiento con una diferenaciación estacional de 12 meses, se observa que los resultados visuales sugieren que la diferenciación estacional reduce parte de la dependencia temporal, aunque no existe evidencia visual suficiente para afirmar que sea necesaria, es por ello que se pretende evaluar más adelante en los modelos de ARIMA/SARIMA si esta diferenciación es necesaria.
+
+```{r}
+#| include: false
+# Primera diferenciación regular
+y1 <- diff(y, differences = 1)
+
+# Diferenciación estacional adicional
+y2 <- diff(y1, lag = 12, differences = 1)
+
+# Serie con ambas diferenciaciones
+plot(y2, main = "Serie con diferenciación regular y estacional")
+```
+
+**Figura 7.**
+
+*ACF y PACF de la serie con diferenciación de 12.*
+```{r}
+# ACF y PACF
+acf(y2, lag.max = 48)
+pacf(y2, lag.max = 48)
+```
+```{r}
+#| include: false
+
+adf.test(y2)
+```
+
+## Familias de modelos
+
+### Suavizamiento exponencial.
+
+Dentro de la familia de suavizamiento exponencial, la selección de los modelos candidatos responde directamente a los patrones identificados en el análisis exploratorio y en la descomposición clásica de la serie de ATV: la ausencia de una tendencia sostenida en el largo plazo y la presencia de un comportamiento estacional mensual definido y con amplitud relativamente constante en el tiempo. Bajo estas características estructurales, se evalúan dos especificaciones:
+
+**Modelo de Holt amortiguado:** Este método suaviza el nivel y la pendiente local de la serie, pero incorpora un parámetro de amortiguamiento que atenúa progresivamente cualquier inclinación hacia una línea plana conforme avanza el horizonte de pronóstico. Se incluye como modelo base no estacional porque evita proyectar crecimientos o decrecimientos lineales irreales en una serie que, en el largo plazo, carece de tendencia persistente.
+
+**Modelo de Holt-Winters aditivo amortiguado:** Esta especificación extiende el enfoque anterior al incorporar explícitamente la componente estacional mensual ($m = 12$) bajo un esquema aditivo, manteniendo a su vez el amortiguamiento sobre la tendencia. Se elige la estructura aditiva en coherencia con el análisis de descomposición previo, ya que supone que las variaciones estacionales mantienen una magnitud aproximadamente constante independientemente del nivel de la serie, en lugar de crecer proporcionalmente con este.
+
+En conjunto, ambos modelos permiten contrastar el aporte real de incorporar la estacionalidad aditiva frente a un esquema puramente amortiguado, asegurando que las proyecciones respeten la estabilidad de largo plazo de los registros mensuales de ATV en Costa Rica.
+
+### ARIMA/SARIMA.
+
+Dentro de la familia de modelos ARIMA/SARIMA, se propone inicialmente una estructura a partir de la interpretación visual de las funciones de autocorrelación simple (ACF) y parcial (PACF) de la serie diferenciada, presentadas en el análisis exploratorio. Se considera una diferenciación regular de primer orden (d = 1), aplicada previamente con el propósito de favorecer la estacionariedad de la serie, con la que se va a observar los gráficos mencionados anteriormente.
+
+Con el propósito de evaluar la necesidad de una diferenciación estacional adicional, se aplicó una diferenciación de periodo 12 (D = 1) a la serie previamente diferenciada. La serie resultante presenta fluctuaciones alrededor de cero y una variabilidad relativamente estable. En cuanto a las funciones ACF y PACF, se observan algunas autocorrelaciones significativas, principalmente en el primer rezago y en el rezago estacional 12, sin un patrón de decaimiento prolongado. Dado que la diferenciación regular por sí sola también permitió reducir la persistencia temporal, no se cuenta con evidencia visual suficiente para determinar cuál de las dos transformaciones resulta más adecuada, además de que se aplico la prueba de Dickey-Fuller. Por ello, se considerarán inicialmente modelos con D = 0 y D = 1, los cuales serán comparados posteriormente mediante criterios de información y diagnósticos de residuos.
+
+En cuanto a la parte regular o no estacional, se observa que la ACF presenta una autocorrelación negativa significativa en el primer rezago, seguida de valores que, en su mayoría, permanecen dentro de las bandas de confianza, sin mostrar un decaimiento gradual claramente definido. Por su parte, en la PACF se observan varias autocorrelaciones significativas en los primeros rezagos, sin un corte completamente claro después del primero. A partir de este comportamiento, se plantea inicialmente no incorporar un componente autorregresivo regular (p = 0), dado que no se identifica con claridad el patrón esperado para un AR(1). En cambio, el posible corte de la ACF después del primer rezago, junto con una disminución aproximada de las autocorrelaciones parciales iniciales en la PACF, permite considerar un componente de medias móviles de primer orden (q = 1).
+
+Respecto a la parte estacional, en la ACF se observan autocorrelaciones positivas en los rezagos 12, 24, 36, 48 y posteriores, que parecen disminuir progresivamente conforme aumentan los períodos. Aunque este decaimiento no es completamente uniforme, se considera compatible con un componente autorregresivo estacional de primer orden (P = 1). Esta hipótesis también se apoya en la PACF, donde se observa una autocorrelación significativa en el rezago 12, mientras que los siguientes múltiplos estacionales parecen mantenerse dentro de las bandas de confianza, sugiriendo un posible corte después del primer rezago estacional.
+
+Por otra parte, no se identifica en la ACF un corte estacional suficientemente claro que sugiera inicialmente un componente de medias móviles estacional (Q = 0). Asimismo, dado que las autocorrelaciones en los rezagos estacionales parecen disminuir progresivamente, se plantea que podría no ser necesaria una diferenciación estacional adicional (D = 0). Aunque inicialmente se considera D = 0, también se evaluarán modelos con D = 1 para determinar si la diferenciación estacional adicional proporciona mejores resultados. 
+
+Con base en estas observaciones, se plantea como hipótesis inicial el modelo **SARIMA(0,1,1)(1,0,0)12** que se prevee tiene mejor respaldo visual, el cual será comparado con otros modelos que sirvan de referencia para confirmar que lo que observamos visualmente sea la mejor opción, esto mediante los criterios de información y el diagnóstico de residuos. Esta identificación se considera preliminar, debido a que los patrones observados en las funciones ACF y PACF no permiten determinar de manera concluyente los órdenes del modelo.
+
+**Tabla 1.**
+
+*Modelos SARIMA propuestos para el ajuste de la serie de ATV.*
+
+| Modelo | Propósito |
+|----|----|
+| SARIMA(0,1,1)(1,0,0)₁₂ | Modelo propuesto a partir de la identificación visual de la ACF y PACF. |
+| SARIMA(1,1,1)(1,0,0)₁₂ | Evaluar si la incorporación de un componente AR(1) regular mejora el ajuste. |
+| SARIMA(1,1,0)(1,0,0)₁₂ | Evaluar un componente AR(1) regular en sustitución del MA(1). |
+| SARIMA(1,1,0)(1,1,0)₁₂ | Evaluar una especificación AR(1) regular con diferenciación estacional (D = 1). |
+| SARIMA(0,1,1)(1,1,0)₁₂ | Evaluar si incorporar una diferenciación estacional (D = 1) mejora el ajuste del modelo inicialmente propuesto. |
+
+*Nota.* Los 6 modelos consideran una diferenciación regular de primer orden y un componente autorregresivo estacional de primer orden, con periodicidad mensual (s=12).
+
+Adicional a este, se aplica el modelo con la función de auto.arima(), con el objetivo de conocer que ajuste considera esta función para el modelo SARIMA(0,1,1)(0,0,2)₁₂
+
+### Modelos de regresión determinística
+
+Dentro de la familia de modelos de regresión determinística, la serie temporal $Y_t$ se modela como una función lineal de covariables determinísticas asociadas al tiempo, estimadas mediante mínimos cuadrados ordinarios (MCO), bajo el supuesto de que el término de error $\epsilon_t$ se comporta como ruido blanco gaussiano, es decir, $\epsilon_t \sim N(0,\sigma^2)$. Dado que el análisis exploratorio evidenció que la variabilidad estacional se manifiesta de manera aditiva, es posible modelar la serie en su escala original sin requerir transformaciones previas.
+
+Para la especificación de los modelos candidatos se parte del patrón estacional mensual definido que exhibe la serie, evaluando tanto representaciones estacionales como la posible contribución de una tendencia lineal determinística a lo largo del periodo de estudio. Con base en ello, se plantean tres especificaciones alternativas para capturar la estructura sistemática de los datos y determinar cuál ofrece un mejor compromiso entre ajuste y parsimonia:
+
+1. **Modelo de estacionalidad con variables indicadoras:** Representa el ciclo estacional mensual mediante $11$ variables indicadoras $I_{1,t}, \dots, I_{11,t}$ (dejando un mes como categoría de referencia):
+
+$$Y_t = \beta_0 + \gamma_1 I_{1,t} + \dots + \gamma_{11} I_{11,t} + \epsilon_t$$
+
+donde $\beta_0$ corresponde al valor esperado en el mes de referencia y $\gamma_j$ mide el diferencial estacional promedio del mes $j$ respecto a dicha referencia.
+
+2. **Modelo de estacionalidad armónica (Fourier):** Como alternativa más parsimoniosa a las once variables indicadoras, aproxima el ciclo estacional anual ($s = 12$) mediante combinaciones lineales de funciones seno y coseno con $K = 2$ pares de armónicos ($\omega_k = k/12$):
+
+$$Y_t = \beta_0 + \sum_{k=1}^{2} \left[ \beta_{1k} \cos(2\pi \omega_k t) + \beta_{2k} \sin(2\pi \omega_k t) \right] + \epsilon_t$$
+Esta formulación captura las fluctuaciones periódicas mensuales empleando únicamente cuatro parámetros estacionales en lugar de once.
+
+3. **Modelo con tendencia lineal y variables indicadoras:** Incorpora un componente de tendencia lineal $\beta_1 t$ junto con las once variables indicadoras mensuales para capturar simultáneamente la evolución en el nivel de los accidentes y el ciclo estacional:
+
+$$Y_t = \beta_0 + \beta_1 t + \gamma_1 I_{1,t} + \dots + \gamma_{11} I_{11,t} + \epsilon_t$$
+
+### Modelos de regresión dinámica
+
+Una limitación habitual de los modelos de regresión determinística aplicados a series temporales es que los residuos suelen conservar autocorrelación serial, violando el supuesto de independencia requerido por MCO. Asimismo, el análisis descriptivo evidenció una alteración estructural asociada a la pandemia por COVID-19, caracterizada por una marcada caída en los ATV durante 2020 y una recuperación progresiva posterior.
+
+Para abordar simultáneamente ambos fenómenos, se plantea una familia de modelos de **regresión dinámica (regresión con errores ARIMA)** estimados por máxima verosimilitud. Este enfoque parte de la estructura sistemática del modelo ganador de regresión lineal ($\mu_t^{\text{reg}}$, compuesta por tendencia lineal e indicadoras estacionales) y le incorpora variables de intervención para modelar el choque externo de la pandemia, permitiendo además que el término de perturbación $\eta_t$ siga un proceso autorregresivo integrado de medias móviles $\text{ARIMA}(p,d,q)$ para absorber la dependencia temporal remanente hasta obtener un ruido blanco gaussiano $\varepsilon_t \sim N(0,\sigma^2)$.
+
+Para representar el efecto de la pandemia se definen tres variables ficticias de intervención:
+
+- **Intervención escalonada del periodo completo ($S_{1,t}$):** Captura un cambio sostenido de nivel durante los 36 meses comprendidos entre enero de 2020 y diciembre de 2022:
+
+$$S_{1,t} = \begin{cases} 1, & \text{si } t \in [\text{enero 2020 - diciembre 2022}] \\ 0, & \text{en otro caso} \end{cases}$$
+
+- **Intervención escalonada anual ($S_{2,t}$):** Captura el cambio de nivel restringido exclusivamente a los 12 meses del año 2020, periodo de mayor impacto sanitario y restricción de movilidad:
+
+$$S_{2,t} = \begin{cases} 1, & \text{si } t \in [\text{enero 2020 - diciembre 2020}] \\ 0, & \text{en otro caso} \end{cases}$$
+
+- **Intervención de impulso ($P_t$):** Captura el choque agudo y puntual en abril de 2020; si bien la declaratoria de emergencia nacional ocurrió a mediados de marzo, abril representó el primer mes completo bajo medidas estrictas de restricción vehicular y confinamiento, coincidiendo con el mínimo histórico de la serie:
+
+$$P_t = \begin{cases} 1, & \text{si } t = \text{abril 2020} \\ 0, & \text{en otro caso} \end{cases}$$
+
+A partir de estas definiciones, se estiman y contrastan tres especificaciones alternativas de regresión dinámica:
+
+Para representar el efecto de la pandemia se definen tres variables de intervención:
+
+- **Intervención escalonada del periodo completo ($S_{1,t}$):** Toma el valor de $1$ entre enero de 2020 y diciembre de 2022 (36 meses), y $0$ en otro caso.
+- **Intervención escalonada anual ($S_{2,t}$):** Toma el valor de $1$ únicamente durante los 12 meses de 2020, y $0$ en otro caso.
+- **Intervención de impulso ($P_t$):** Toma el valor de $1$ exclusivamente en abril de 2020, que corresponde al primer mes completo bajo medidas estrictas de restricción vehicular y confinamiento, coincidiendo con el mínimo histórico de la serie, y $0$ en otro caso.
+
+A partir de estas definiciones, se estiman y contrastan tres especificaciones de regresión dinámica:
+
+$$\begin{aligned}
+\text{Modelo RD1 (Escalón 2020–2022):} \quad Y_t &= \beta_0 + \beta_1 t + \gamma_1 I_{1,t} + \dots + \gamma_{11} I_{11,t} + \delta_1 S_{1,t} + \eta_t \\
+\text{Modelo RD2 (Escalón 2020):} \quad Y_t &= \beta_0 + \beta_1 t + \gamma_1 I_{1,t} + \dots + \gamma_{11} I_{11,t} + \delta_2 S_{2,t} + \eta_t \\
+\text{Modelo RD3 (Impulso abril 2020):} \quad Y_t &= \beta_0 + \beta_1 t + \gamma_1 I_{1,t} + \dots + \gamma_{11} I_{11,t} + \delta_3 P_t + \eta_t
+\end{aligned}$$
+
+donde $\delta_1, \delta_2$ y $\delta_3$ cuantifican el impacto promedio de cada intervención sobre el número mensual de ATV, y $\eta_t \sim \text{ARIMA}(p,d,q)$ modela la estructura de autocorrelación de los errores mediante $\phi(B)(1-B)^d \eta_t = \theta(B)\varepsilon_t$. La selección del modelo finalista dentro de esta familia se fundamenta en los criterios de información ($\text{AIC}$ y $\text{BIC}$) y la ausencia de autocorrelación residual evaluada mediante la prueba de Ljung-Box.
+
+```{r}
+#| include: false
+sessionInfo()
+citation()
+```
+
+Todo el análisis descrito en esta sección se ejecutó en el software estadístico R versión 4.6.1 [@RStudio]. Para la estimación, diagnóstico y evaluación de los modelos de series de tiempo se emplearon los paquetes `forecast` [@forecast2026; @forecast2008], `fpp2` [@fpp22026], `tserie`s [@tseries2026], `astsa` [@astsa2026], `TTR` [@TTR2023], `xts` [@xts2026] y `quantmod` [@quantmod2026], junto con `car` [@car2019] para pruebas y diagnósticos de regresión. Asimismo, la manipulación, limpieza y gestión de fechas se realizó mediante `tidyverse` [@tidyverse2019], `data.table` [@datatable2026] y `lubridate` [@lubridate2011]; la visualización gráfica se desarrolló con `ggplot2` [@ggplot2016], `ggfortify` [@Yuan2016; @Masaaki2026] y `plotly` [@carson2020]; y la generación de tablas y reportes reproducibles se efectuó con `knitr` [@knitr2025; @knitr2015; @knitr2014] y `DT` [@DT2025].
+
+Además, se adjunta el enlace a GitHub para el acceso al código analizado: `AGREGAR ENLACE`.
+
+# Resultados
+
+En este apartado se documentan los resultados de las estimaciones realizadas sobre la serie de ATV en Costa Rica. La presentación se divide según las familias de modelos evaluadas, que corresponden a suavizamiento exponencial, modelos autorregresivos integrados (ARIMA/SARIMA) y regresión lineal con variables de intervención, detallando en cada caso los parámetros estimados, el diagnóstico de los residuos y las métricas de precisión predictiva que permiten fundamentar la selección del modelo óptimo.
+
+## Familia de suavizamiento exponencial
+
+```{r}
+#| include: false
+# Entrenamiento: 2014-2023
+train <- window(y, end = c(2023, 12))
+# Prueba: 2024
+test <- window(y, start = c(2024, 1))
+
+### Modelo de Holt amortiguado
+holt1 <- ets(train, model = "AAN", damped = TRUE)
+summary(holt1)
+
+# Gráfico del ajuste dentro de la muestra (fitted values)
+autoplot(train, series = "Observada") +
+  autolayer(fitted(holt1), series = "Ajuste Holt amortiguado") +
+  ggtitle("Ajuste del modelo Holt amortiguado") +
+  xlab("Año") +
+  ylab("ATV (2014-2023)")
+```
+
+```{r}
+#| include: false
+
+### Modelo de Holt-Winters aditivo amortiguado
+hw1 <- ets(train, model = "AAA", damped = TRUE)
+summary(hw1)
+
+# Gráfico del ajuste dentro de la muestra (fitted values)
+autoplot(train, series = "Observada") +
+  autolayer(fitted(hw1), series = "Ajuste HW aditivo amortiguado") +
+  ggtitle("Ajuste del modelo HW aditivo amortiguado") +
+  xlab("Año") +
+  ylab("ATV (2014-2023)")
+```
+
+Se realizó el análisis de suavizamiento exponencial mediante los métodos de Holt amortiguado y Holt-Winters (HW) aditivo amortiguado. Como se observa en la Figura 6, el ajuste de Holt amortiguado corresponde a una trayectoria lineal, mientras que el método HW aditivo amortiguado reproduce con mayor fidelidad la dinámica y las fluctuaciones de la serie original. En correspondencia con este comportamiento visual, la Tabla 2 evidencia que el modelo HW aditivo amortiguado logra un menor error de ajuste en todas las métricas comparables: reduce el RMSE de 106.7473$ a $85.9178$, el MAE de $81.7453$ a $62.4385$ y el MASE de $0.5536$ a $0.4229$. Por lo tanto, dentro de esta familia de modelos, el método HW aditivo amortiguado ofrece el mejor desempeño para capturar el comportamiento de los ATV.
+
+*Figura 8.*
+
+**Comparación de ajuste: Suavizamiento exponencial con los datos de entrenamiento**
+
+```{r}
+autoplot(train, series = "Observada") +
+  autolayer(fitted(holt1), series = "Holt amortiguado") +
+  autolayer(fitted(hw1), series = "HW aditivo amortiguado") +
+  scale_color_manual(
+    values = c(
+      "Observada" = "#646464",
+      "Holt amortiguado" = "blue",
+      "HW aditivo amortiguado" = "#F53B06")
+  ) +
+  xlab("Año") +
+  ylab("ATV") +
+  labs(color = "Serie") +
+  theme_minimal()
+```
+
+*Tabla 2.*
+
+**Métricas de error de ajuste para los modelos de suavizamiento exponencial.**
+
+```{r}
+err_holt <- accuracy(holt1)
+err_hw   <- accuracy(hw1)
+tabla_errores <- rbind("Holt amortiguado" = err_holt[1, ],
+  "HW aditivo amortiguado" = err_hw[1, ])
+df_apa <- as.data.frame(round(tabla_errores[, c("RMSE", "MAE", "MAPE", "MASE")], 4))
+df_apa <- cbind(Modelo = rownames(df_apa), df_apa)
+rownames(df_apa) <- NULL
+kable(df_apa,
+  format = "pipe", # o "latex" / "html" según tu salida
+  align = c("l", "r", "r", "r", "r"),  digits = 4)
+```
+
+A continuación, se procedió a pronosticar los 12 meses de 2024, dado que se pueden comparar con los datos reales, como se observa en la Figura 9. Asimismo, en la Tabla 3 se observa que tanto en el RMSE y el MAPE, el error disminuye en el set de prueba. Por último, en la Figura 10 se observa el pronóstico para el 2025.
+
+*Figura 9.*
+
+**Comparación de ajuste: Suavizamiento exponencial con los datos de prueba.**
+
+```{r}
+# Pronósticos Holt-Winters
+pron_hw <- forecast(hw1, h = 12)
+
+# Gráfico de pronósticos y valores observados
+autoplot(pron_hw) + autolayer(test, series = "Valores reales") +
+  labs(title = "Pronósticos Holt-Winters para 2024",
+    x = "Año", y = "Cantidad de ATV") +
+  theme_minimal()
+```
+
+*Tabla 3.*
+
+**Métricas de error de ajuste para los modelos de suavizamiento exponencial comparativo para los datos de entrenamiento y prueba.**
+
+```{r}
+acc_pron_hw <- accuracy(pron_hw, test)[c("Training set", "Test set"), c("RMSE", "MAE", "MAPE", "MASE")]
+
+df_apa_hw <- data.frame(Muestra = rownames(acc_pron_hw),
+  round(acc_pron_hw, 4),row.names = NULL, check.names = FALSE)
+
+kable(df_apa_hw, format = "pipe", # o "latex" / "html" según tu salida
+  align = c("l", "r", "r", "r", "r"), digits = 3)
+```
+
+*Figura 10.*
+
+**Pronóstico de 2025 con modelo de HW aditivo amortiguado.**
+
+```{r}
+# Reajustar Holt-Winters con toda la base
+hw_final <- ets(y, model = "AAA", damped = TRUE)
+
+# Pronosticar 2025
+pron_hw_final <- forecast(hw_final, h = 12)
+
+autoplot(pron_hw_final) +
+  labs(title = "Pronósticos Holt-Winters para 2025",
+    x = "Año", y = "Cantidad de ATV") +
+  theme_minimal()
+```
+
+## Familia ARIMA/SARIMA
+
+```{r}
+#| include: false
+library(forecast)
+
+# Modelo 1: SARIMA(0,1,1)(1,0,0)[12]
+m1 <- Arima(train, order = c(0,1,1), seasonal = c(1,0,0))
+
+# Modelo 2: SARIMA(1,1,1)(1,0,0)[12]
+m2 <- Arima(train, order = c(1,1,1), seasonal = c(1,0,0))
+
+# Modelo 3: SARIMA(1,1,0)(1,0,0)[12]
+m3 <- Arima(train, order = c(1,1,0),seasonal = c(1,0,0))
+
+# Modelo 4: SARIMA(1,1,0)(1,1,0)[12]
+m4 <- Arima(train, order = c(1,1,0), seasonal = c(1,1,0))
+
+# Modelo 5: SARIMA(0,1,1)(1,1,0)[12]
+m5 <- Arima(train, order = c(0,1,1), seasonal = c(1,1,0))
+
+#auto.arima(y)
+m6 <- Arima(train, order = c(0,1,1), seasonal = c(0,0,2))
+```
+
+A partir de la comparación de los seis modelos SARIMA ajustados con los datos de entrenamiento, presentada en la Tabla 4, se observa que, entre los modelos sin diferenciación estacional (D = 0), el SARIMA(0,1,1)(1,0,0)₁₂ presenta los menores valores de AIC (1442.106), AICc (1442.315) y BIC (1450.444), lo que favorece su selección en términos de ajuste y parsimonia dentro de este grupo. Aunque el modelo SARIMA(1,1,1)(1,0,0)₁₂ presenta un RMSE ligeramente menor (99.729), el SARIMA(0,1,1)(1,1,0)₁₂ obtiene el menor MAPE (6.436 %) y el SARIMA(0,1,1)(1,0,0)₁₂ presenta el menor MASE (0.508), empatado por redondeo con el SARIMA(1,1,1)(1,0,0)₁₂. Por otra parte, los modelos con diferenciación estacional (D = 1) presentan valores inferiores en los criterios de información; sin embargo, estos no se comparan directamente con los modelos que utilizan D = 0 debido a las diferencias en la transformación de la serie. Considerando estos resultados, se selecciona provisionalmente el modelo SARIMA(0,1,1)(1,0,0)₁₂, identificado inicialmente mediante el análisis visual de la ACF y PACF, cuya adecuación deberá evaluarse mediante el diagnóstico de residuos y la comparación de su capacidad predictiva con las demás alternativas.
+
+*Tabla 4.*
+
+**Métricas de error de ajuste para los modelos ARIMA/SARIMA.**
+
+
+```{r}
+# Comparación de los seis modelos SARIMA
+
+modelos <- list(m1, m2, m3, m4, m5, m6)
+
+nombres <- c("SARIMA(0,1,1)(1,0,0)[12]", "SARIMA(1,1,1)(1,0,0)[12]",
+  "SARIMA(1,1,0)(1,0,0)[12]", "SARIMA(1,1,0)(1,1,0)[12]",
+  "SARIMA(0,1,1)(1,1,0)[12]", "SARIMA(0,1,1)(0,0,2)[12]")
+
+tabla_comparacion <- data.frame(Modelo = nombres,
+  RMSE = sapply(modelos, function(m) accuracy(m)[1, "RMSE"]),
+  MAPE = sapply(modelos, function(m) accuracy(m)[1, "MAPE"]),
+  MASE = sapply(modelos, function(m) accuracy(m)[1, "MASE"]),
+  AIC = sapply(modelos, function(m) m$aic),
+  AICc = sapply(modelos, function(m) m$aicc),
+  BIC = sapply(modelos, function(m) m$bic))
+
+tabla_comparacion[-1] <- round(tabla_comparacion[-1], 3)
+
+knitr::kable(tabla_comparacion,
+  caption = "Comparación de los modelos SARIMA propuestos",
+  align = "lcccccc")
+```
+
+Para evaluar la adecuación del modelo SARIMA(0,1,1)(1,0,0)12, se realizó un diagnóstico de residuos vista en la Figura 11, la función de autocorrelación simple (ACF), el histograma y la prueba de Ljung-Box. Los residuos presentan fluctuaciones alrededor de cero, sin un patrón temporal o estacional claramente definido, aunque se observa un valor negativo extremo alrededor de 2020, producido por la pandemia. Asimismo, las autocorrelaciones residuales se mantienen dentro de las bandas de confianza, lo que sugiere que el modelo captura adecuadamente la dependencia temporal de la serie. Esta observación se complementa con la prueba de Ljung-Box, cuyo valor p de 0.9308 no permite rechazar la hipótesis nula de ausencia de autocorrelación residual al nivel de significancia del 5 %. No obstante, el histograma evidencia algunos valores extremos que podrían afectar la normalidad de los residuos. En conjunto, los resultados respaldan la adecuación del modelo en términos de autocorrelación residual.
+
+
+*Figura 11.*
+
+**Residuales del modelo SARIMA ganador.**
+
+```{r}
+checkresiduals(m1)
+```
+
+Para evaluar la capacidad predictiva del modelo SARIMA(0,1,1)(1,0,0)₁₂, se realizaron pronósticos para los 12 meses de  2024, utilizando el modelo ajustado con el conjunto de entrenamiento correspondiente al periodo 2014–2023. Losresultados muestran un RMSE de 58.709, un MAE de 45.094 y un MAPE de 3.202 %, valores inferiores a los obtenidos durante el entrenamiento. Asimismo, el MASE de 0.305 y el estadístico U de Theil de 0.555, ambos inferiores a uno, indican undesempeño favorable respecto a los métodos ingenuos utilizados como referencia. Por su parte, el error medio de -5.369 refleja una ligera sobreestimación promedio de los valores observados. En conjunto, los resultados evidencian un desempeño predictivo favorable durante el periodo de prueba, aunque la evaluación corresponde únicamente a un año (Figura 12). En la Figura 13 se observa su predicción para el 2025 con el modelo ganador de esta familia.
+
+```{r}
+#| include: false
+autoplot(m1)
+res<-m1$res
+ts.plot(res)
+```
+
+```{r}
+#| include: false
+
+#Normalidad
+shapiro.test(res)
+jarque.bera.test(res)
+```
+```{r}
+#| include: false
+
+qqPlot(res)
+```
+```{r}
+#| include: false
+
+autoplot(forecast(m1))
+```
+
+*Figura 12.*
+
+**Pronósticos SARIMA frente a datos de prueba.**
+```{r}
+
+# División de la serie
+train <- window(y, end = c(2023, 12))
+test <- window(y, start = c(2024, 1))
+
+# Ajuste del modelo con los datos de entrenamiento
+m1_train <- Arima(train, order = c(0,1,1), seasonal = c(1,0,0))
+
+# Pronóstico de los 12 meses de prueba
+pron_test <- forecast(m1_train, h = length(test))
+
+# Gráfico de pronósticos contra valores reales
+autoplot(train, series = "Entrenamiento") +
+  autolayer(test, series = "Valores reales") +
+  autolayer(pron_test$mean, series = "Pronóstico SARIMA") +
+  scale_color_manual(values = c("Entrenamiento" = "black",
+      "Valores reales" = "red", "Pronóstico SARIMA" = "blue")) +
+  labs(x = "Año", y = "Cantidad de ATV", color = "Serie") +
+  theme_minimal()
+```
+
+```{r}
+#| include: false
+accuracy(pron_test, test)
+```
+
+*Figura 13.*
+
+**Pronósticos SARIMA para 2025.**
+
+```{r}
+# Reajustar el modelo con toda la serie
+modelo_final <- Arima(y,
+                      order = c(0,1,1),
+                      seasonal = c(1,0,0))
+
+# Pronosticar los siguientes 12 meses
+pron_final <- forecast(modelo_final, h = 12)
+
+autoplot(pron_final) +
+  labs(x = "Año", y = "Cantidad de ATV") +
+  theme_minimal()
+```
+
+## Familia de modelos de regresión
+
+Con el propósito de modelar los componentes sistemáticos de la serie en su escala original, se estimaron sobre el conjunto de entrenamiento (2014–2023) las tres especificaciones determinísticas planteadas previamente: el modelo con variables indicadoras estacionales, la representación armónica de Fourier ($K=2$) y el modelo conjunto de tendencia lineal con variables indicadoras. Este contraste permite evaluar si la incorporación de una pendiente determinística mejora la capacidad explicativa frente a los enfoques puramente estacionales, manteniendo un adecuado equilibrio entre precisión y parsimonia. 
+
+```{r}
+#| include: false
+
+#mods
+reg1 = tslm(train ~ season)
+reg2 = tslm(train ~ fourier(train, K = 2))
+reg3 = tslm(train ~ trend + season) 
+
+#tabla con mods y métricas de erroe
+modelos_reg = list(reg1, reg2, reg3)
+nombres_reg = c("Regresión: Estacionalidad (Indicadoras)",
+  "Regresión: Estacionalidad armónica (Fourier K=2)",
+  "Regresión: Tendencia + Indicadoras")
+
+tabla_reg = data.frame(Modelo = nombres_reg,
+  RMSE   = sapply(modelos_reg, function(m) accuracy(m)[1, "RMSE"]),
+  MAPE   = sapply(modelos_reg, function(m) accuracy(m)[1, "MAPE"]),
+  AIC    = sapply(modelos_reg, AIC),
+  BIC    = sapply(modelos_reg, BIC))
+
+tabla_reg[-1] = round(tabla_reg[-1], 3)
+tabla_reg[-1]
+```
+
+
+En la Figura 14 se observa el ajuste de los tres modelos de regresión determinística frente a los datos observados en el periodo de entrenamiento (2014–2023). Los modelos que incluyen únicamente estacionalidad (indicadoras y Fourier) generan una oscilación constante a lo largo de todos los años, aunque las variables indicadoras marcan con mayor claridad los picos de diciembre y marzo, mientras que Fourier suaviza un poco más esas variaciones. Por otro lado, al agregar la tendencia lineal junto con las indicadoras, la línea ajustada logra acompañar mejor el leve aumento de la serie al inicio (2014–2016) y los valores más altos hacia el final (2022–2023). Sin embargo, se nota claramente que ninguno de los tres modelos logra capturar la caída fuerte de los accidentes en 2020 provocada por la pandemia.
+
+
+*Figura 14.*
+
+**Ajuste de los modelos de regresión.**
+
+```{r}
+autoplot(train, series = "Observada") +
+  autolayer(fitted(reg1), series = "Estacionalidad (Indicadoras)") +
+  autolayer(fitted(reg2), series = "Estacionalidad armónica (Fourier K=2)") +
+  autolayer(fitted(reg3), series = "Tendencia + Indicadoras") +
+  scale_color_manual(
+    values = c(
+      "Observada" = "#CDB79E",
+      "Estacionalidad (Indicadoras)" = "#CD3333",
+      "Estacionalidad armónica (Fourier K=2)" = "#104E8B",
+      "Tendencia + Indicadoras" = "#8B7500"
+    )
+  ) +
+  labs(
+    x = "Año",
+    y = "Cantidad de ATV",
+    color = "Serie"
+  ) +
+  theme_minimal()
+```
+
+Por su parte, en la Tabla 4 se presentan las métricas de error y los criterios de información para comparar el desempeño de las tres especificaciones. El modelo de **Tendencia + Indicadoras** es el que obtiene los errores de ajuste más bajos ($\text{RMSE} = 136.374$ y $\text{MAPE} = 8.788\%$), así como el menor valor de AIC ($1548.242$). Aunque el modelo de Fourier presenta un $\text{BIC}$ menor ($1569.123$) por utilizar menos parámetros, el modelo con tendencia e indicadoras logra un mejor ajuste general y un menor AIC, por lo que se selecciona como el ganador de la familia de regresión.
+
+*Tabla 5. *
+
+**Métricas de error de ajuste para los modelos de regresión.**
+
+```{r}
+knitr::kable(tabla_reg,
+  caption = "Comparación de los modelos de regresión propuestos.",
+  align = "lcccccc"
+)
+```
+
+*Pronóstico al conjunto de prueba*
+```{r}
+#| include: false
+# Pronóstico de 2024 a partir del modelo entrenado con train (2014-2023)
+pron_reg_2024 = forecast(reg3, h = length(test))
+```
+
+
+En la Figura 15 se presenta el pronóstico generado por el modelo ganador para los doce meses de 2024 frente a los valores reales observados. Se observa que, aunque la proyección logra reproducir adecuadamente la forma del patrón estacional, ya que captura los picos de marzo y diciembre y la disminución a mitad de año, la curva pronosticada subestima sistemáticamente el nivel real de los accidentes durante todo el año. Este rezago se puede deber a que la pendiente lineal estimada en el periodo de entrenamiento se ve arrastrada hacia abajo por la caída de 2020 y no logra adaptarse al nivel más elevado que alcanzó la serie entre 2023 y 2024.
+
+*Figura 15.*
+
+**Pronósticos regresión frente a datos de prueba.**
+
+
+```{r}
+# Gráfico comparando el pronóstico 2024 contra los valores reales (test)
+autoplot(train, series = "Entrenamiento") +
+  autolayer(test, series = "Valores reales") +
+  autolayer(pron_reg_2024$mean, series = "Pronóstico Regresión") +
+  scale_color_manual(
+    values = c(
+      "Entrenamiento" = "#CDB79E",
+      "Valores reales" = "#CD3333",
+      "Pronóstico Regresión" = "#104E8B"
+    )
+  ) +
+  labs(
+    x = "Año",
+    y = "Cantidad de ATV",
+    color = "Serie"
+  ) +
+  theme_minimal()
+```
+
+*Pronóstico a futuro con toda la base*
+
+```{r}
+#| include: false
+
+# Ajustar el modelo ganador con toda la serie y (2014-2024)
+reg_final = tslm(y ~ trend + season)
+
+# Pronóstico a 12 meses (2025)
+pron_reg_final = forecast(reg_final, h = 12)
+```
+
+En la Figura 16 se presenta el pronóstico a doce meses obtenido al reestimar el modelo ganador reg3 con la serie completa de 2014 a 2024. La proyección reproduce el comportamiento estacional habitual, con picos en marzo y diciembre y una caída a mitad de año, acompañado de bandas de predicción del 80 % y 95 % que reflejan una incertidumbre relativamente constante en el horizonte de pronóstico.
+
+*Figura 16.*
+
+**Pronóstico del modelo ganador de regresión para 2025.**
+
+```{r}
+# Visualización con intervalos de confianza
+autoplot(pron_reg_final) +
+  labs(
+    x = "Año",
+    y = "Cantidad de ATV"
+  ) +
+  theme_minimal()
+```
+
+## Familia de modelos de regresión dinámica
+
+Con base en los resultados obtenidos previamente, se toma el modelo con tendencia e indicadoras como especificación de referencia de la familia de regresión lineal y se le añaden las variables de intervención propuestas. Este procedimiento permite evaluar la relevancia estadística del impacto de la pandemia en la serie de ATV y seleccionar la formulación más adecuada.
+
+```{r}
+#| include: false
+
+#Crear fechas y variables de intervención
+
+#Esto le pedí al chat porque ocupamos las matrices de 0 para lo del analisis de intervención
+
+#fechas_train: crea un calendario mensual de 120 fechas (desde enero de 2014 hasta diciembre de 2023, que es el largo exacto de train). Se usa solo como referencia para decirle a R en qué meses poner un 1 y en cuáles un 0.
+
+#S1_train (Escalón 2020–2022): es un vector de 120 posiciones con puro 0, excepto entre enero 2020 y diciembre 2022 donde vale 1. Sirve para medir cuánto bajaron los accidentes en promedio durante esos 3 años de pandemia. 
+
+#S2_train (Escalón 2020): igual que el anterior, pero solo pone 1 en los 12 meses de 2020 (el año más crítico de restricciones) y 0 en todo lo demás.   P_train (Impulso abril 2020): pone un 1 únicamente en marzo de 2020 (cuando se decretó la emergencia nacional en Costa Rica) y 0 en los otros 119 meses.   
+
+fechas_train = seq(as.Date("2014-01-01"), as.Date("2023-12-01"), by = "month")
+
+S1_train = ifelse(fechas_train >= as.Date("2020-01-01") & fechas_train <= as.Date("2022-12-01"), 1, 0)
+S2_train = ifelse(fechas_train >= as.Date("2020-01-01") & fechas_train <= as.Date("2020-12-01"), 1, 0)
+P_train  = ifelse(fechas_train == as.Date("2020-04-01"), 1, 0)
+
+# 2. Ajustar las 3 regresiones base en train para inspeccionar sus residuos
+
+#### Modelo con intervención escalonada del periodo completo ($S_{1,t}$)
+
+mod1_rd = tslm(train ~ trend + season + S1_train)
+
+### Modelo con intervención escalonada anual ($S_{2,t}$)
+mod2_rd = tslm(train ~ trend + season + S2_train)
+
+### Modelo con intervención de impulso ($P_t$)
+
+mod3_rd = tslm(train ~ trend + season + P_train)
+```
+
+En la Figura 17 se muestran las ACF PACF de los residuos obtenidos al ajustar los modelos preliminares con cada una de las tres variables de intervención. En los tres casos se observa que, aunque se incluyeron la tendencia, la estacionalidad y el efecto de la pandemia, los residuos aún conservan dependencia temporal: la ACF presenta un decaimiento gradual a lo largo de los primeros rezagos, mientras que la PACF cortan en el primer rezago. Este comportamiento indica que los errores no son ruido blanco y justifica modelarlos mediante una estructura autorregresiva de primer orden, $\text{AR}(1)$, dando lugar a especificaciones de regresión con errores $\text{ARIMA}(1,0,0)$. 
+
+*Figura 17.*
+
+**ACF y PACF para los modelos con regresión dinámica.**
+
+
+```{r}
+#| fig-height: 9
+
+# ACF y PACF de los residuos de cada especificación
+par(mfrow = c(3, 2), mar = c(3, 4, 3.5, 1))
+acf(residuals(mod1_rd), main = "ACF Residuos RD1 (Escalón 2020-2022)")
+pacf(residuals(mod1_rd), main = "PACF Residuos RD1 (Escalón 2020-2022)")
+
+acf(residuals(mod2_rd), main = "ACF Residuos RD2 (Escalón 2020)")
+pacf(residuals(mod2_rd), main = "PACF Residuos RD2 (Escalón 2020)")
+
+acf(residuals(mod3_rd), main = "ACF Residuos RD3 (Impulso abr-2020)")
+pacf(residuals(mod3_rd), main = "PACF Residuos RD3 (Impulso abr-2020)")
+par(mfrow = c(1, 1))
+```
+
+*Modelado con estructura AR(1) en sus errores de regresión*
+```{r}
+#| include: false
+
+#Matriz base en entrenamiento (Tendencia y las 11 Indicadoras)
+trend_train = 1:length(train)
+seas_train  = seasonaldummy(train)
+base_train  = cbind(trend = trend_train, seas_train) #esto es como lo que el profe nos dio para el estudio de casos
+
+# Matriz
+xreg_rd1_train = cbind(base_train, S1 = S1_train)
+xreg_rd2_train = cbind(base_train, S2 = S2_train)
+xreg_rd3_train = cbind(base_train, P  = P_train)
+
+# Estimar modelos
+rd1 = Arima(train, xreg = xreg_rd1_train, order = c(1, 0, 0))
+rd2 = Arima(train, xreg = xreg_rd2_train, order = c(1, 0, 0))
+rd3 = Arima(train, xreg = xreg_rd3_train, order = c(1, 0, 0))
+
+#tabla
+modelos_rd = list(rd1, rd2, rd3)
+nombres_rd = c(
+  "RD1: Tendencia + Indicadoras + Escalón 2020-2022 (AR1)",
+  "RD2: Tendencia + Indicadoras + Escalón 2020 (AR1)",
+  "RD3: Tendencia + Indicadoras + Impulso abril 2020 (AR1)"
+)
+
+tabla_rd = data.frame(
+  Modelo = nombres_rd,
+  RMSE   = sapply(modelos_rd, function(m) accuracy(m)[1, "RMSE"]),
+  MAPE   = sapply(modelos_rd, function(m) accuracy(m)[1, "MAPE"]),
+  AIC    = sapply(modelos_rd, function(m) m$aic),
+  BIC    = sapply(modelos_rd, function(m) m$bic)
+)
+tabla_rd[-1] = round(tabla_rd[-1], 3)
+```
+
+En la Tabla 6 se comparan las tres especificaciones de regresión dinámica con errores $\text{ARIMA}(1,0,0)$ ajustadas sobre el periodo de entrenamiento. Incorporar la estructura autorregresiva en los errores junto con las variables de intervención reduce sustancialmente los errores de ajuste respecto a la regresión determinística tradicional. Entre las tres alternativas, el modelo **RD2** obtiene el mejor desempeño en todas las métricas evaluadas, alcanzando los valores más bajos de error ($\text{RMSE} = 83.589$ y $\text{MAPE} = 5.176\%$) y los menores criterios de información ($\text{AIC} = 1435.380$ y $\text{BIC} = 1479.980$), por lo que se selecciona como el modelo ganador de la familia de regresión dinámica.
+
+*Tabla 6.*
+
+**Comparación de los modelos de regresión dinámica propuestos.**
+
+```{r}
+knitr::kable(tabla_rd)
+```
+
+En la Figura 18 se presenta el diagnóstico de los residuos de innovación del modelo ganador. En el panel superior se observa que los residuos oscilan de manera aleatoria alrededor de cero sin mostrar tendencias ni patrones. Por su parte, la función de autocorrelación (ACF) muestra que la totalidad de los rezagos se mantiene dentro de las bandas de confianza del 95 %, lo cual confirma que la estructura $\text{AR}(1)$ logró eliminar por completo la dependencia serial que persistía en los modelos determinísticos. Finalmente, el histograma exhibe una distribución aproximadamente simétrica y centrada en cero.
+
+*Figura 18.*
+
+**Residuales de innovación del modelo ganador.**
+
+```{r}
+# 1. Resumen de coeficientes y diagnóstico de residuos de RD2
+#summary(rd2)
+checkresiduals(rd2)
+```
+
+*Pronóstico con la base de prueba*
+```{r}
+#| include: false
+
+trend_test    <- (length(train) + 1):(length(train) + length(test))
+seas_test     <- seasonaldummy(train, h = length(test))
+S2_test       <- rep(0, length(test))
+xreg_rd2_test <- cbind(trend = trend_test, seas_test, S2 = S2_test)
+
+pron_rd2_2024 <- forecast(rd2, xreg = xreg_rd2_test, h = length(test))
+```
+
+En la Figura 19 se compara el pronóstico generado por el modelo ganador de regresión dinámica (**RD2**) frente a los valores reales observados durante el año 2024. Se aprecia que la proyección captura bien los picos estacionales de marzo y diciembre, pero no alcanza el nivel de crecimiento reciente y tiende a caer por debajo de los valores reales. Esto responde a que la pendiente lineal promedia el comportamiento de toda la serie incluyendo los años posteriores a 2020 en que la serie aún venía recuperándose.
+
+
+*Figura 19.*
+
+**Pronostico del modelo ganador dinámico frente a valores de prueba.**
+
+
+```{r}
+autoplot(train, series = "Entrenamiento") +
+  autolayer(test, series = "Valores reales") +
+  autolayer(pron_rd2_2024$mean, series = "Pronóstico Regresión Dinámica") +
+  scale_color_manual(
+    values = c(
+      "Entrenamiento" = "#CDB79E",
+      "Valores reales" = "#CD3333",
+      "Pronóstico Regresión Dinámica" = "#104E8B")) +
+  labs(x = "Año", y = "Cantidad de ATV", color = "Serie") +
+  theme_minimal()
+```
+
+*Pronóstico con la base completa*
+
+```{r}
+#| include: false
+fechas_full <- seq(as.Date("2014-01-01"), as.Date("2024-12-01"), by = "month")
+S2_full     <- ifelse(fechas_full >= as.Date("2020-01-01") & fechas_full <= as.Date("2020-12-01"), 1, 0)
+S2_2025     <- rep(0, 12)
+
+xreg_rd2_full <- cbind(trend = 1:length(y), seasonaldummy(y), S2 = S2_full)
+xreg_rd2_2025 <- cbind(trend = (length(y) + 1):(length(y) + 12), seasonaldummy(y, h = 12), S2 = S2_2025)
+
+rd2_full     <- Arima(y, xreg = xreg_rd2_full, order = c(1, 0, 0))
+pron_rd2_2025 <- forecast(rd2_full, xreg = xreg_rd2_2025, h = 12)
+```
+
+En la Figura 20 se muestra el pronóstico a doce meses (2025) al reestimar el modelo ganador de regresión dinámica *RD2* con toda la serie histórica (2014–2024). Al incorporar los datos completos de 2024, la proyección se ubica en el nivel alto que venía mostrando la serie al cierre de ese año (entre los 1300 y 1500 ATV mensuales) y mantiene el patrón estacional con picos en marzo y diciembre.
+
+*Figura 20.*
+
+**Pronostico del modelo ganador dinámico frente a valores de prueba.**
+
+```{r}
+autoplot(pron_rd2_2025) +
+  labs(title = NULL, x = "Año", y = "Cantidad de ATV") +
+  theme_minimal()
+```
+
+# Discusión y conclusiones
+
+Una vez seleccionados los modelos ganadores de las cuatro familias analizadas, se realiza una comparación de su capacidad predictiva. Para ello, se consideran el modelo Holt-Winters aditivo amortiguado, el SARIMA(0,1,1)(1,0,0)₁₂, el modelo de regresión determinística con tendencia e indicadoras estacionales y el modelo de regresión dinámica RD2.
+
+La comparación se desarrolla en dos etapas. Primero, se evalúan los pronósticos correspondientes a 2024, generados a partir de los modelos ajustados con el conjunto de entrenamiento de 2014–2023. En ambos casos, se utilizan las métricas RMSE, MAE y MAPE para identificar diferencias en su desempeño predictivo.
+
+Seguidamente, se comparan los pronósticos de los cuatro modelos reajustados con la serie completa de 2014–2024, con el propósito de examinar sus proyecciones para los doce meses de 2025. Esta segunda comparación permite identificar diferencias en los niveles y patrones pronosticados, aunque no evaluar sus errores predictivos debido a que los valores observados de 2025 no forman parte de la base utilizada.
+
+En la Tabla 7 se presentan los errores predictivos de los cuatro modelos ganadores, evaluados sobre el conjunto de prueba correspondiente a 2024. Se observa que el modelo SARIMA(0,1,1)(1,0,0)₁₂ presenta el mejor desempeño predictivo, al obtener los menores valores de RMSE (58.709), MAE (45.094) y MAPE (3.202%). En segundo lugar, se encuentra Holt-Winters, con un MAPE de 5.110%, seguido de la regresión dinámica (6.794 %) y la regresión determinística (9.432%). En la Figura 21 y Tabla 8 se muestra la comparación de pronósticos para 2025. Se encuentra que todos los modelos, excepto el ganador, tienen una forma similar en su estimación para 2025.
+
+**Tabla 7.**
+
+*Comparación predictiva de los cuatro modelos en 2024 en set de prueba.*
+
+```{r}
+# Comparación predictiva de los cuatro modelos en 2024
+
+pronosticos_2024 <- list("Holt-Winters" = pron_hw, "SARIMA" = pron_test,
+  "Regresión determinística" = pron_reg_2024,
+  "Regresión dinámica" = pron_rd2_2024)
+
+# Calcular errores sobre los mismos 12 meses de prueba
+tabla_comparacion_2024 <- data.frame(Modelo = names(pronosticos_2024),
+  RMSE = sapply(pronosticos_2024, function(p)
+    accuracy(p, test)["Test set", "RMSE"]),
+  MAE = sapply(pronosticos_2024, function(p)
+    accuracy(p, test)["Test set", "MAE"]),
+  MAPE = sapply(pronosticos_2024, function(p)
+    accuracy(p, test)["Test set", "MAPE"]))
+tabla_comparacion_2024[-1] <- round(tabla_comparacion_2024[-1], 3)
+
+knitr::kable(tabla_comparacion_2024, align = "lccc")
+```
+
+*Tabla 8.*
+
+**Comparación de pronósticos de 2025.**
+
+```{r}
+# Pronósticos de 2025 de los cuatro modelos ganadores
+
+tabla_2025 <- data.frame(Mes = month.abb,
+  Holt_Winters = as.numeric(pron_hw_final$mean),
+  SARIMA = as.numeric(pron_final$mean),
+  Regresion = as.numeric(pron_reg_final$mean),
+  Regresion_Dinamica = as.numeric(pron_rd2_2025$mean))
+
+# Tabla de pronósticos mensuales
+knitr::kable(tabla_2025, digits = 2)
+```
+
+*Figura 21.*
+
+**Comparación de pronósticos de 2025, graficado.**
+
+```{r}
+library(ggplot2)
+library(forecast)
+
+autoplot(window(y, start = c(2024, 1)), series = "Valores observados 2024") +
+  autolayer(pron_hw_final$mean, series = "Holt-Winters") +
+  autolayer(pron_final$mean, series = "SARIMA") +
+  autolayer(pron_reg_final$mean, series = "Regresión determinística") +
+  autolayer(pron_rd2_2025$mean, series = "Regresión dinámica") +
+  labs(title = "Comparación de pronósticos para 2025",
+    x = "Año", y = "Cantidad de ATV", color = "Modelo") +
+  theme_minimal()
+```
+
+# Referencias
